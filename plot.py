@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import mplhep
 mplhep.set_style("CMS")
 plt.rcParams["figure.figsize"] = (12.5,10)
-#plt.rcParams['figure.constrained_layout.use'] = True
 
 import pandas as pd
 import numpy as np
@@ -29,16 +28,6 @@ for group in bkg_groups.keys(): bkg_processes.extend(bkg_groups[group])
 
 columns_to_plot = ["Diphoton_mass", "Diphoton_pt", "Diphoton_eta", "Diphoton_phi", "LeadPhoton_pt", "LeadPhoton_eta", "LeadPhoton_phi", "LeadPhoton_mass", "LeadPhoton_mvaID", "LeadPhoton_genPartFlav", "LeadPhoton_pixelSeed", "SubleadPhoton_pt", "SubleadPhoton_eta", "SubleadPhoton_phi", "SubleadPhoton_mass", "SubleadPhoton_mvaID", "SubleadPhoton_genPartFlav", "SubleadPhoton_pixelSeed", "jet_1_pt", "jet_1_eta", "jet_1_phi", "jet_1_mass", "jet_1_btagDeepFlavB", "jet_2_pt", "jet_2_eta", "jet_2_phi", "jet_2_mass", "jet_2_btagDeepFlavB", "b_jet_1_btagDeepFlavB", "b_jet_2_btagDeepFlavB", "tau_candidate_1_pt", "tau_candidate_1_eta", "tau_candidate_1_phi", "tau_candidate_1_mass", "tau_candidate_1_charge", "tau_candidate_1_id", "tau_candidate_2_pt", "tau_candidate_2_eta", "tau_candidate_2_phi", "tau_candidate_2_mass", "tau_candidate_2_charge", "tau_candidate_2_id", "tau_candidate_3_pt", "tau_candidate_3_eta", "tau_candidate_3_phi", "tau_candidate_3_mass", "tau_candidate_3_charge", "tau_candidate_3_id", "n_jets", "n_leptons", "n_electrons", "n_muons", "n_taus", "n_iso_tracks", "ditau_pt", "ditau_eta", "ditau_phi", "ditau_mass", "ditau_dR", "ditau_lead_lepton_pt", "ditau_lead_lepton_eta", "ditau_lead_lepton_phi", "ditau_lead_lepton_mass", "ditau_lead_lepton_id", "ditau_lead_lepton_charge", "ditau_sublead_lepton_pt", "ditau_sublead_lepton_eta", "ditau_sublead_lepton_phi", "ditau_sublead_lepton_mass", "ditau_sublead_lepton_id", "ditau_sublead_lepton_charge", "dilep_leadpho_mass", "dilep_subleadpho_mass"]
 
-"""
-#pastel
-colour_schemes = {
-  4: ['#b3e2cd','#fdcdac','#cbd5e8','#f4cae4'],
-  5: ['#b3e2cd','#fdcdac','#cbd5e8','#f4cae4','#e6f5c9'],
-  6: ['#b3e2cd','#fdcdac','#cbd5e8','#f4cae4','#e6f5c9','#fff2ae'],
-  7: ['#b3e2cd','#fdcdac','#cbd5e8','#f4cae4','#e6f5c9','#fff2ae','#f1e2cc'],
-  8: ['#b3e2cd','#fdcdac','#cbd5e8','#f4cae4','#e6f5c9','#fff2ae','#f1e2cc','#cccccc']
-}
-"""
 colour_schemes = {
   4: ['#a6cee3','#1f78b4','#b2df8a','#33a02c'],
   5: ['#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99'],
@@ -118,6 +107,31 @@ def createBkgStack(bkg, column, group=True):
 
   return bkg_stack, bkg_stack_w, bkg_stack_labels
 
+def getBkgError(bkg_stack, bkg_stack_w, edges):
+  """
+  Calculate error in each bin for each process
+  Error = sqrt(N in bin) * avgw in bin
+        = sqrt(N in bin) * (sumw in bin)/(N in bin)
+        = (sumw in bin)/sqrt(N in bin)
+  Total error = Sqrt( Sum(error^2) ) = Sqrt( Sum( (sumw in bin)^2/(N in bin) ) )
+  """
+  
+  sumws = []
+  errors = []  
+  for i, bkg in enumerate(bkg_stack):
+    N, edges = np.histogram(bkg, bins=edges)
+    sumw, edges = np.histogram(bkg, bins=edges, weights=bkg_stack_w[i])
+    
+    sumws.append(sumw)
+    errors.append(np.nan_to_num(sumw / np.sqrt(N)))
+
+  sumw = np.array(sumws)
+  errors = np.array(errors)
+  
+  sumw = np.sum(sumw, axis=0)
+  error = np.sqrt(np.sum(errors**2, axis=0))
+  return sumw, error  
+
 def decayToMath(channel):
   if channel == "gg":
     return r"\gamma\gamma"
@@ -178,23 +192,26 @@ def plot(data, bkg, sig, args):
   
   for column in tqdm(cfg.keys()):    
     data_hist, edges = np.histogram(data[column], bins=50, range=cfg[column]["range"], weights=data["weight_central"])
-    bkg_hist, edges = np.histogram(bkg[column], bins=50, range=cfg[column]["range"], weights=bkg["weight_central"])
     sig_hist, edges = np.histogram(sig[column], bins=50, range=cfg[column]["range"], weights=sig["weight_central"])
     bin_centres = (edges[:-1]+edges[1:])/2
 
     bkg_stack, bkg_stack_w, bkg_stack_labels = createBkgStack(bkg, column)
+    bkg_sumw, bkg_error = getBkgError(bkg_stack, bkg_stack_w, edges)
 
-    ratio = data_hist / bkg_hist
-    ratio_err = np.sqrt(data_hist) / bkg_hist
+    ratio = data_hist / bkg_sumw
+    ratio_err = np.sqrt(data_hist) / bkg_sumw
 
     sig_sf = data_hist.sum() / sig_hist.sum()
 
-    axs[0].hist(edges[:-1], edges, weights=sig_hist*sig_sf, label=getSigLabel(args), histtype='step', color='r', lw=3, zorder=10) #signal
-    axs[0].hist(bkg_stack, edges, weights=bkg_stack_w, label=bkg_stack_labels, stacked=True, color=colour_schemes[len(bkg_stack)]) #background
-    axs[0].errorbar(bin_centres, data_hist, np.sqrt(data_hist), label="Data", fmt='ko') #data
+    axs[0].hist(edges[:-1], edges, weights=sig_hist*sig_sf, label=getSigLabel(args), histtype='step', color='r', lw=3, zorder=9) #signal
+    axs[0].fill_between(edges, np.append(bkg_sumw-bkg_error, 0), np.append(bkg_sumw+bkg_error, 0), step="post", alpha=0.5, color="grey", zorder=8) #background uncertainty
+    axs[0].hist(bkg_stack, edges, weights=bkg_stack_w, label=bkg_stack_labels, stacked=True, color=colour_schemes[len(bkg_stack)], zorder=7) #background
+    axs[0].errorbar(bin_centres, data_hist, np.sqrt(data_hist), label="Data", fmt='ko', zorder=10) #data
     axs[0].set_ylabel("Events")
   
     axs[1].errorbar(bin_centres, ratio, ratio_err, label="Data", fmt='ko')
+    axs[1].fill_between(edges, np.append(1-bkg_error/bkg_sumw, 1), np.append(1+bkg_error/bkg_sumw, 1), step="post", alpha=0.5, color="grey")
+
     axs[1].set_xlabel(column)
     axs[1].set_ylabel("Data / MC")
 
@@ -219,37 +236,26 @@ def plot(data, bkg, sig, args):
 if __name__=="__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument('--input', '-i', type=str)
-  parser.add_argument('--sig-input', '-si', type=str)
   parser.add_argument('--summary', '-s', type=str)
-  parser.add_argument('--sig-summary', '-ss', type=str)
   parser.add_argument('--sig-proc', '-p', type=str)
   parser.add_argument('--output', '-o', type=str, default="plots")
   parser.add_argument('--config', '-c', type=str)
   parser.add_argument('--norm', default=False, action="store_true")
   args = parser.parse_args()
 
-  if args.sig_summary == None: args.sig_summary = args.summary
-
   with open(args.summary, "r") as f:
     proc_dict = json.load(f)["sample_id_map"]
-  with open(args.sig_summary, "r") as f:
-    sig_proc_dict = json.load(f)["sample_id_map"]
-
+  
   print(">> Loading dataframes")  
   df = pd.read_parquet(args.input)
-  if args.sig_input == None:
-    sig_df = df
-  else:
-    sig_df = pd.read_parquet(args.sig_input)
 
   print(">> Preprocessing")
   df = preprocess(df)
-  sig_df = preprocess(df)  
 
   data = df[df.process_id==proc_dict["Data"]]
   bkg_proc_ids = [proc_dict[bkg_proc] for bkg_proc in bkg_processes]
   bkg = df[df.process_id.isin(bkg_proc_ids)]
-  sig = sig_df[sig_df.process_id==sig_proc_dict[args.sig_proc]]
+  sig = df[df.process_id==proc_dict[args.sig_proc]]
 
   #blinding
   #data = data[(data.Diphoton_mass < 120) | (data.Diphoton_mass>130)]
