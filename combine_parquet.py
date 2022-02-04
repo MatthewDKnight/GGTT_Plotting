@@ -69,13 +69,13 @@ def mergeDataFrames(args):
 
 if __name__=="__main__":
   parser = argparse.ArgumentParser()
-  parser.add_argument('--parquet-input', '-p', type=str, nargs='+')
-  parser.add_argument('--summary-input', '-s', type=str, nargs='+')
+  parser.add_argument('--parquet-input', '-p', type=str, nargs='+', help="List of parquet files to merge, e.g. low_mass.parquet sm_trigger.parquet ...")
+  parser.add_argument('--summary-input', '-s', type=str, nargs='+', help="List of summary json files to merge, e.g. low_mass_summary.json sm_trigger_summary.json ...")
 
   parser.add_argument('--parquet-output', type=str, default="merged_nominal.parquet")
   parser.add_argument('--summary-output', type=str, default="summary.json")
 
-  parser.add_argument('--exclude-procs', '-e', type=str, nargs='+', default=[])
+  parser.add_argument('--exclude-procs', '-e', type=str, nargs='+', default=[], help="List of processes to not include in the merging, e.g. Diphoton TTGamma ...")
 
   parser.add_argument('--force', '-f', default=False, action="store_true", help="Overwrite output parquet and summary files without asking permission.")
 
